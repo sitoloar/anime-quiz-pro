@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Anime Quiz Pro</title>
+    <!-- Cargamos las librerías necesarias -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Cargamos Lucide globalmente -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #020617; color: #f8fafc; overflow-x: hidden; }
+        .custom-scrollbar::-webkit-scrollbar { width: 0px; }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-8px); } 40% { transform: translateX(8px); } 60% { transform: translateX(-6px); } 80% { transform: translateX(6px); } }
+        .animate-shake { animation: shake 0.3s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+        .tap-highlight-transparent { -webkit-tap-highlight-color: transparent; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes zoomIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+        .animate-in { animation-fill-mode: both; }
+        .fade-in { animation: fadeIn 0.5s ease-out; }
+        .zoom-in { animation: zoomIn 0.5s ease-out; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Script con presets corregidos -->
+    <script type="text/babel" data-type="module" data-presets="env,react">
+        // Primero, define las variables globales que tu código espera
+        window.__firebase_config = JSON.stringify({
+            apiKey: "TU_API_KEY_AQUI", 
+            authDomain: "anime-quiz-twa.firebaseapp.com",
+            projectId: "anime-quiz-twa",
+            storageBucket: "anime-quiz-twa.appspot.com",
+            messagingSenderId: "TU_SENDER_ID_AQUI",
+            appId: "TU_APP_ID_AQUI"
+        });
+        
+        window.__app_id = "anime-quiz-pro-prod";
+        window.__initial_auth_token = null; // O un token válido si tienes autenticación personalizada
+
+        // Ahora importa Firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, updateDoc, collection, onSnapshot, increment, writeBatch } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+        // --- CONFIGURACIÓN DE FIREBASE ---
+        let firebaseConfig;
+        
+        if (window.__firebase_config) {
+            firebaseConfig = JSON.parse(window.__firebase_config);
+        } else {
+            firebaseConfig = {
+                apiKey: "AIzaSyCzMHYbC7Q4HSV0Wnou56vnKL2-Py_RYtI", 
+                authDomain: "anime-quiz-twa.firebaseapp.com",
+                projectId: "anime-quiz-twa",
+                storageBucket: "anime-quiz-twa.appspot.com",
+                messagingSenderId: "303007999686",
+                appId: "1:303007999686:web:03c140e818c2785d0f99c7"
+            };
+        }
+
+        const ADMIN_EMAIL = "hiey69@hotmail.com"; 
+        const appId = window.__app_id || "anime-quiz-pro-prod";
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // --- COMPONENTE DE ICONO SIMPLIFICADO (usa emojis) ---
+        const Icon = ({ name, size = 24, className = "" }) => {
+            const emojiMap = {
+                home: "🏠",
+                shoppingBag: "🛍️",
+                user: "👤",
+                coins: "🪙",
+                sparkles: "✨",
+                zap: "⚡",
+                anchor: "⚓",
+                flame: "🔥",
+                lock: "🔒",
+                ghost: "👻",
+                sword: "⚔️",
+                uploadCloud: "☁️",
+                database: "🗄️"
+            };
+            
+            const iconName = name.toLowerCase();
+            const emoji = emojiMap[iconName] || "❓";
+            
+            return (
+                <span 
+                    style={{ fontSize: `${size}px` }} 
+                    className={`inline-flex items-center justify-center ${className}`}
+                >
+                    {emoji}
+                </span>
+            );
+        };
+
+        // --- ICONOS SVG PERSONALIZADOS (ANIME) ---
+        const CustomIcons = {
+            DragonBall: () => (
+                <div className="text-4xl">🐉</div>
+            ),
+            OnePiece: () => (
+                <div className="text-4xl">🏴‍☠️</div>
+            ),
+            Naruto: () => (
+                <div className="text-4xl">🌀</div>
+            ),
+            JJK: () => (
+                <div className="text-4xl">👹</div>
+            ),
+            DemonSlayer: () => (
+                <div className="text-4xl">🗡️</div>
+            )
+        };
+
+        const TITLES_SHOP = [
+            { id: 1, name: "Academia", price: 0, icon: "🎓", desc: "Novato en entrenamiento" },
+            { id: 2, name: "Gennin", price: 150, icon: "🍃", desc: "Ninja de bajo rango" },
+            { id: 3, name: "Cazador F", price: 400, icon: "⚔️", desc: "Iniciado en la logia" },
+            { id: 4, name: "Super Saiyan", price: 850, icon: "🔥", desc: "Poder de otro mundo" },
+            { id: 5, name: "Pilar", price: 1600, icon: "👺", desc: "Élite de los cazadores" },
+            { id: 6, name: "Hokage", price: 6000, icon: "🎩", desc: "Líder de la aldea" }
+        ];
+
+        const ARENA_CATEGORIES = [
+            { id: 'general', title: 'Maestro Anime', icon: 'sparkles', colorClass: 'text-yellow-400' },
+            { id: 'dragon_ball', title: 'Dragon Ball', icon: 'zap', colorClass: 'text-orange-400' },
+            { id: 'one_piece', title: 'One Piece', icon: 'anchor', colorClass: 'text-blue-400' },
+            { id: 'naruto', title: 'Naruto', icon: 'flame', colorClass: 'text-orange-400' },
+            { id: 'jjk', title: 'Jujutsu Kaisen', icon: 'ghost', colorClass: 'text-purple-400' },
+            { id: 'demon_slayer', title: 'Demon Slayer', icon: 'sword', colorClass: 'text-red-400' }
+        ];
+
+        function App() {
+            const [user, setUser] = useState(null);
+            const [profile, setProfile] = useState(null);
+            const [questions, setQuestions] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [activeTab, setActiveTab] = useState('home');
+            const [gameState, setGameState] = useState('idle');
+            const [activeQuestions, setActiveQuestions] = useState([]);
+            const [currentIdx, setCurrentIdx] = useState(0);
+            const [score, setScore] = useState(0);
+            const [timeLeft, setTimeLeft] = useState(15);
+            const [selectedAnswer, setSelectedAnswer] = useState(null);
+            const [emailInput, setEmailInput] = useState("");
+            const [bulkJson, setBulkJson] = useState("");
+            const [isSeeding, setIsSeeding] = useState(false);
+            const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
+            const [currentCategory, setCurrentCategory] = useState("");
+            
+            const todayStr = new Date().toISOString().split('T')[0];
+
+            useEffect(() => {
+                const initAuth = async () => {
+                    try {
+                        if (window.__initial_auth_token) {
+                            await signInWithCustomToken(auth, window.__initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (e) {
+                        console.error("Error Auth:", e);
+                    }
+                };
+                initAuth();
+
+                const unsub = onAuthStateChanged(auth, (u) => {
+                    setUser(u);
+                });
+                return () => unsub();
+            }, []);
+
+            useEffect(() => {
+                if (!user) return;
+                
+                const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main');
+                const unsubProfile = onSnapshot(profileRef, (snap) => {
+                    if (snap.exists()) {
+                        setProfile(snap.data());
+                    } else {
+                        const init = { 
+                            email: "", 
+                            coins: 300, 
+                            unlockedTitles: [1], 
+                            activeTitle: 1, 
+                            lastDailyMission: "", 
+                            dailyFreeGames: { date: "", categories: {} } 
+                        };
+                        setDoc(profileRef, init);
+                        setProfile(init);
+                    }
+                    setLoading(false);
+                }, (err) => { 
+                    console.error(err); 
+                    setLoading(false); 
+                });
+
+                const qRef = collection(db, 'artifacts', appId, 'public', 'data', 'questions');
+                const unsubQuestions = onSnapshot(qRef, (snap) => {
+                    setQuestions(snap.docs.map(d => d.data()));
+                });
+                
+                return () => { 
+                    unsubProfile(); 
+                    unsubQuestions(); 
+                };
+            }, [user]);
+
+            useEffect(() => {
+                let timer;
+                if (gameState === 'playing' && timeLeft > 0 && selectedAnswer === null) {
+                    timer = setInterval(() => setTimeLeft(p => p - 1), 1000);
+                } else if (timeLeft === 0 && gameState === 'playing' && selectedAnswer === null) {
+                    handleAnswer(-1);
+                }
+                return () => clearInterval(timer);
+            }, [gameState, timeLeft, selectedAnswer]);
+
+            const updateProfile = async (upd) => {
+                if (!user) return;
+                const profileRef = doc(db, 'artifacts', appId, 'users', user.uid, 'profile', 'main');
+                await updateDoc(profileRef, upd);
+            };
+
+            const handleStartGame = async (catId, isMission = false) => {
+                if (!profile) return;
+                
+                if (isMission && profile.lastDailyMission === todayStr) {
+                    alert("Has completado tu misión hoy. ¡Vuelve mañana!");
+                    return;
+                }
+                
+                const target = isMission ? 5 : 20;
+                let pool = isMission || catId === 'general' ? questions : questions.filter(q => q.category === catId);
+                
+                if (pool.length === 0) {
+                    alert("Esta categoría está vacía. Sube preguntas en la pestaña Perfil.");
+                    return;
+                }
+
+                const selected = [...pool]
+                    .sort(() => 0.5 - Math.random())
+                    .slice(0, target)
+                    .map(q => {
+                        const corrText = q.options[q.correct];
+                        const opts = [...q.options].sort(() => 0.5 - Math.random());
+                        return { ...q, options: opts, correct: opts.indexOf(corrText) };
+                    });
+
+                setActiveQuestions(selected);
+                setCurrentCategory(isMission ? "Misión Diaria" : catId);
+                setGameState('playing');
+                setCurrentIdx(0); 
+                setScore(0); 
+                setTimeLeft(15); 
+                setSelectedAnswer(null);
+            };
+
+            const handleAnswer = (idx) => {
+                if (selectedAnswer !== null) return;
+                
+                setSelectedAnswer(idx);
+                const isCorrect = idx === activeQuestions[currentIdx].correct;
+                const pointsToAdd = isCorrect ? timeLeft * 10 : 0;
+                const newScore = score + pointsToAdd;
+                setScore(newScore);
+                
+                setTimeout(() => {
+                    if (currentIdx < activeQuestions.length - 1) {
+                        setCurrentIdx(i => i + 1); 
+                        setTimeLeft(15); 
+                        setSelectedAnswer(null);
+                    } else {
+                        const earned = Math.floor(newScore / 10);
+                        const updates = { coins: increment(earned) };
+                        
+                        if (currentCategory === "Misión Diaria") {
+                            updates.lastDailyMission = todayStr;
+                        }
+                        
+                        updateProfile(updates);
+                        setGameState('finished');
+                    }
+                }, 1000);
+            };
+
+            const handleBulkUpload = async () => {
+                if (!bulkJson.trim()) {
+                    alert("JSON vacío");
+                    return;
+                }
+                
+                try {
+                    const data = JSON.parse(bulkJson);
+                    if (!Array.isArray(data)) {
+                        throw new Error("El JSON debe ser un array de preguntas");
+                    }
+                    
+                    setIsSeeding(true);
+                    setUploadProgress({ current: 0, total: data.length });
+                    
+                    const CHUNK = 10; // Reducido para evitar timeouts
+                    for (let i = 0; i < data.length; i += CHUNK) {
+                        const batch = writeBatch(db);
+                        const chunk = data.slice(i, i + CHUNK);
+                        
+                        chunk.forEach((q, idx) => {
+                            const docId = `q_${Date.now()}_${i + idx}`;
+                            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'questions', docId);
+                            batch.set(docRef, q);
+                        });
+                        
+                        await batch.commit();
+                        setUploadProgress(prev => ({ 
+                            ...prev, 
+                            current: Math.min(i + CHUNK, data.length) 
+                        }));
+                    }
+                    
+                    alert(`¡Carga masiva exitosa! Se subieron ${data.length} preguntas.`);
+                    setBulkJson("");
+                } catch (e) { 
+                    alert(`Error en el formato JSON: ${e.message}`); 
+                } finally { 
+                    setIsSeeding(false); 
+                    setUploadProgress({ current: 0, total: 0 });
+                }
+            };
+
+            if (loading) return (
+                <div className="h-screen flex items-center justify-center font-black italic text-slate-500 uppercase tracking-widest animate-pulse">
+                    Sincronizando...
+                </div>
+            );
+
+            if (user && profile && !profile.email) return (
+                <div className="h-screen flex items-center justify-center p-10 bg-slate-950">
+                    <div className="bg-slate-900 p-8 rounded-[3rem] w-full text-center border border-white/5 shadow-2xl">
+                        <h2 className="text-2xl font-black italic mb-8 uppercase text-white">Acceso Guerrero</h2>
+                        <input 
+                            value={emailInput} 
+                            onChange={e => setEmailInput(e.target.value)} 
+                            placeholder="tu@email.com" 
+                            className="w-full bg-black p-5 rounded-2xl mb-6 border border-white/10 outline-none text-white focus:border-purple-500 transition-all" 
+                        />
+                        <button 
+                            onClick={() => updateProfile({ email: emailInput })} 
+                            className="w-full bg-white text-black font-black py-5 rounded-2xl uppercase tracking-widest text-xs active:scale-95 transition-all"
+                        >
+                            Entrar al Dojo
+                        </button>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div className="max-w-[420px] mx-auto h-screen bg-slate-950 flex flex-col relative border-x border-white/5 tap-highlight-transparent text-white">
+                    <main className="flex-1 overflow-y-auto custom-scrollbar p-6">
+                        {gameState === 'playing' ? (
+                            <div className="flex flex-col h-full animate-in fade-in duration-300">
+                                <div className="flex justify-between items-end mb-8">
+                                    <h4 className="text-3xl font-black tabular-nums">{score}</h4>
+                                    <p className="font-black text-slate-500 uppercase text-xs">
+                                        {currentIdx + 1} / {activeQuestions.length}
+                                    </p>
+                                </div>
+                                
+                                <div className="h-1.5 bg-slate-900 rounded-full mb-12 overflow-hidden shadow-inner">
+                                    <div 
+                                        className="h-full bg-purple-500 transition-all duration-1000 ease-linear" 
+                                        style={{ width: `${(timeLeft / 15) * 100}%` }} 
+                                    />
+                                </div>
+                                
+                                <h2 className="text-xl font-bold text-center mb-10 italic leading-relaxed">
+                                    {activeQuestions[currentIdx]?.q || "Cargando pregunta..."}
+                                </h2>
+                                
+                                <div className="space-y-3">
+                                    {activeQuestions[currentIdx]?.options?.map((opt, i) => {
+                                        const isCorrect = i === activeQuestions[currentIdx].correct;
+                                        let btnClass = "bg-slate-900 border-white/5 text-slate-200";
+                                        
+                                        if (selectedAnswer !== null) {
+                                            if (isCorrect) {
+                                                btnClass = "bg-emerald-500/20 border-emerald-500 text-emerald-400 scale-[1.02] shadow-[0_0_20px_rgba(16,185,129,0.2)]";
+                                            } else if (selectedAnswer === i) {
+                                                btnClass = "bg-red-500/20 border-red-500 text-red-400 animate-shake";
+                                            } else {
+                                                btnClass = "opacity-20 scale-95 grayscale";
+                                            }
+                                        }
+                                        
+                                        return (
+                                            <button 
+                                                key={i} 
+                                                onClick={() => handleAnswer(i)} 
+                                                disabled={selectedAnswer !== null} 
+                                                className={`w-full p-5 rounded-2xl border-2 text-left font-bold transition-all duration-300 ${btnClass}`}
+                                            >
+                                                {opt}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ) : gameState === 'finished' ? (
+                            <div className="h-full flex flex-col items-center justify-center text-center animate-in zoom-in duration-500">
+                                <h2 className="text-5xl font-black italic mb-8 uppercase tracking-tighter leading-none">
+                                    ¡Nivel<br/>Superado!
+                                </h2>
+                                
+                                <div className="bg-slate-900 p-10 rounded-[3rem] w-full border border-white/5 mb-10 shadow-2xl">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <span className="text-slate-500 uppercase text-[10px] font-black tracking-widest">
+                                            Puntos
+                                        </span>
+                                        <span className="text-4xl font-black">{score}</span>
+                                    </div>
+                                    
+                                    <div className="flex justify-between items-center text-yellow-500">
+                                        <span className="text-slate-500 uppercase text-[10px] font-black tracking-widest">
+                                            Monedas
+                                        </span>
+                                        <span className="text-4xl font-black">+{Math.floor(score / 10)}</span>
+                                    </div>
+                                </div>
+                                
+                                <button 
+                                    onClick={() => setGameState('idle')} 
+                                    className="w-full bg-white text-black font-black py-6 rounded-3xl uppercase tracking-widest text-xs active:scale-95 transition-all shadow-xl"
+                                >
+                                    Continuar
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="animate-in fade-in duration-500">
+                                {activeTab === 'home' && (
+                                    <div className="space-y-10">
+                                        <header className="flex justify-between items-center">
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-12 h-12 rounded-2xl bg-slate-900 border border-purple-500 flex items-center justify-center text-2xl shadow-lg">
+                                                    {profile && TITLES_SHOP.find(t => t.id === profile.activeTitle)?.icon}
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-black text-slate-500 uppercase italic tracking-widest">
+                                                        Rango Guerrero
+                                                    </p>
+                                                    <p className="font-black italic uppercase text-sm">
+                                                        {profile && TITLES_SHOP.find(t => t.id === profile.activeTitle)?.name}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="bg-slate-900 px-5 py-2 rounded-full border border-white/5 flex items-center gap-2 shadow-inner">
+                                                <Icon name="coins" size={16} />
+                                                <span className="text-sm font-black tabular-nums">
+                                                    {profile?.coins || 0}
+                                                </span>
+                                            </div>
+                                        </header>
+
+                                        <div className="p-8 bg-slate-900 rounded-[3rem] border border-white/5 relative overflow-hidden shadow-2xl group transition-all hover:bg-slate-900/80">
+                                            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:rotate-12 transition-transform">
+                                                <Icon name="sparkles" size={80} />
+                                            </div>
+                                            
+                                            <h3 className="text-2xl font-black italic mb-6 uppercase tracking-tighter leading-none">
+                                                Misión Diaria
+                                            </h3>
+                                            
+                                            <button 
+                                                onClick={() => handleStartGame('general', true)} 
+                                                disabled={profile?.lastDailyMission === todayStr}
+                                                className={`px-10 py-4 rounded-full font-black text-[10px] uppercase tracking-widest transition-all ${
+                                                    profile?.lastDailyMission === todayStr 
+                                                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                                                    : 'bg-white text-black active:scale-95 hover:scale-105'
+                                                }`}
+                                            >
+                                                {profile?.lastDailyMission === todayStr ? 'Completado ✓' : 'Aceptar Reto'}
+                                            </button>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-5 pb-24">
+                                            {ARENA_CATEGORIES.map(cat => {
+                                                const CIcon = CustomIcons[cat.title.replace(' ', '')] || (() => <Icon name={cat.icon} size={40} className={cat.colorClass} />);
+                                                
+                                                return (
+                                                    <button 
+                                                        key={cat.id} 
+                                                        onClick={() => handleStartGame(cat.id)} 
+                                                        className="bg-slate-900 border border-white/5 p-8 rounded-[2.5rem] h-48 flex flex-col items-center justify-center gap-5 active:scale-95 transition-all shadow-xl hover:border-purple-500/30"
+                                                    >
+                                                        <CIcon />
+                                                        <h3 className="font-black italic text-xs uppercase tracking-tighter leading-none">
+                                                            {cat.title}
+                                                        </h3>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {activeTab === 'shop' && (
+                                    <div className="space-y-4 pb-28">
+                                        <h2 className="text-4xl font-black italic mb-10 uppercase tracking-tighter leading-none">
+                                            Dojo Sagrado
+                                        </h2>
+                                        
+                                        {TITLES_SHOP.map(t => {
+                                            const unlocked = profile?.unlockedTitles?.includes(t.id);
+                                            const active = profile?.activeTitle === t.id;
+                                            const canAfford = profile?.coins >= t.price;
+                                            
+                                            return (
+                                                <div 
+                                                    key={t.id} 
+                                                    className={`p-6 bg-slate-900 rounded-[2.5rem] border flex items-center justify-between transition-all ${
+                                                        active ? 'border-purple-500/50 bg-purple-500/5' : 'border-white/5'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-5">
+                                                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-3xl shadow-inner ${
+                                                            unlocked ? 'bg-slate-800' : 'bg-black/40'
+                                                        }`}>
+                                                            {unlocked ? t.icon : <Icon name="lock" size={20} />}
+                                                        </div>
+                                                        
+                                                        <div>
+                                                            <h3 className="font-black text-xs uppercase italic leading-none mb-1.5">
+                                                                {t.name}
+                                                            </h3>
+                                                            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-tight">
+                                                                {t.desc}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <button 
+                                                        onClick={() => {
+                                                            if (active) return;
+                                                            if (unlocked) {
+                                                                updateProfile({ activeTitle: t.id });
+                                                            } else if (canAfford) {
+                                                                updateProfile({ 
+                                                                    coins: increment(-t.price), 
+                                                                    unlockedTitles: [...(profile.unlockedTitles || []), t.id] 
+                                                                });
+                                                            }
+                                                        }} 
+                                                        disabled={!unlocked && !canAfford}
+                                                        className={`px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${
+                                                            active ? 'bg-purple-600 text-white' 
+                                                            : unlocked ? 'bg-slate-800 text-white hover:bg-slate-700' 
+                                                            : canAfford ? 'bg-white text-black hover:bg-slate-200' 
+                                                            : 'bg-slate-900 text-slate-500 cursor-not-allowed'
+                                                        }`}
+                                                    >
+                                                        {active ? 'Activo' : unlocked ? 'Usar' : t.price}
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                                
+                                {activeTab === 'profile' && (
+                                    <div className="text-center py-12 pb-28">
+                                        <div className="w-36 h-36 bg-gradient-to-tr from-purple-800 to-pink-600 rounded-[4rem] mx-auto flex items-center justify-center text-6xl mb-8 shadow-[0_20px_50px_rgba(168,85,247,0.3)] border-4 border-white/10">
+                                            {profile && TITLES_SHOP.find(t => t.id === profile.activeTitle)?.icon}
+                                        </div>
+                                        
+                                        <h2 className="text-4xl font-black italic uppercase mb-2 tracking-tighter">
+                                            {profile?.email?.split('@')[0] || 'Usuario'}
+                                        </h2>
+                                        
+                                        <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.3em] mb-12 opacity-60">
+                                            {profile?.email || 'No hay email'}
+                                        </p>
+                                        
+                                        {profile?.email === ADMIN_EMAIL && (
+                                            <div className="mb-10 bg-slate-900 p-8 rounded-[3rem] border border-purple-500/20 text-left shadow-2xl relative overflow-hidden">
+                                                <div className="absolute top-0 right-0 p-4 opacity-5">
+                                                    <Icon name="database" size={60} />
+                                                </div>
+                                                
+                                                <h4 className="text-[10px] font-black text-purple-500 mb-6 uppercase tracking-widest flex items-center gap-2">
+                                                    <Icon name="uploadCloud" size={14} /> Gestión de Datos (JSON)
+                                                </h4>
+                                                
+                                                <textarea 
+                                                    value={bulkJson} 
+                                                    onChange={e => setBulkJson(e.target.value)} 
+                                                    className="w-full h-32 bg-black border border-white/10 rounded-2xl p-5 text-[10px] mb-4 font-mono outline-none text-slate-400 focus:border-purple-500 transition-all" 
+                                                    placeholder='[{"category":"naruto","q":"¿Quién es el protagonista?","options":["Naruto","Sasuke","Sakura","Kakashi"],"correct":0}, ...]' 
+                                                />
+                                                
+                                                {uploadProgress.total > 0 && (
+                                                    <div className="mb-4">
+                                                        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                                                            <div 
+                                                                className="h-full bg-purple-500 transition-all duration-300"
+                                                                style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
+                                                            />
+                                                        </div>
+                                                        <p className="text-[10px] text-slate-400 mt-2 text-center">
+                                                            {uploadProgress.current} / {uploadProgress.total} preguntas
+                                                        </p>
+                                                    </div>
+                                                )}
+                                                
+                                                <button 
+                                                    onClick={handleBulkUpload} 
+                                                    disabled={isSeeding || !bulkJson.trim()}
+                                                    className="w-full bg-white text-black font-black py-5 rounded-2xl uppercase text-[10px] tracking-widest shadow-lg active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-200"
+                                                >
+                                                    {isSeeding ? `Subiendo ${uploadProgress.current}/${uploadProgress.total}` : 'Sincronizar Universo'}
+                                                </button>
+                                            </div>
+                                        )}
+                                        
+                                        <button 
+                                            onClick={() => updateProfile({ email: "" })} 
+                                            className="text-slate-600 font-black text-[10px] uppercase tracking-[0.4em] hover:text-red-500 transition-colors p-4"
+                                        >
+                                            Cerrar Sesión
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </main>
+
+                    {gameState === 'idle' && (
+                        <nav className="h-28 bg-slate-950/80 backdrop-blur-lg border-t border-white/5 flex justify-around items-center px-10 shrink-0 z-50">
+                            {[ 
+                                { id: 'home', icon: 'home', label: 'Arena' }, 
+                                { id: 'shop', icon: 'shoppingBag', label: 'Dojo' }, 
+                                { id: 'profile', icon: 'user', label: 'Perfil' } 
+                            ].map(item => (
+                                <button 
+                                    key={item.id} 
+                                    onClick={() => setActiveTab(item.id)} 
+                                    className={`flex flex-col items-center gap-2 transition-all duration-300 ${
+                                        activeTab === item.id ? 'text-white scale-110' : 'text-slate-600 hover:text-slate-400'
+                                    }`}
+                                >
+                                    <Icon name={item.icon} size={24} />
+                                    <span className={`text-[9px] font-black uppercase tracking-widest transition-opacity ${
+                                        activeTab === item.id ? 'opacity-100' : 'opacity-40'
+                                    }`}>
+                                        {item.label}
+                                    </span>
+                                </button>
+                            ))}
+                        </nav>
+                    )}
+                </div>
+            );
+        }
+
+        // Renderizar la aplicación
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
