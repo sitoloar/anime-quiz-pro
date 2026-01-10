@@ -16,11 +16,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
     
     <style>
-        /* ESTILOS GLOBALES & GLASSMORPHISM */
+        /* ESTILOS CORE */
         body { 
             font-family: 'Inter', sans-serif; 
-            background-color: #020617;
-            background-image: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #020617 60%);
+            background-color: #020617; 
             color: #f8fafc; 
             overflow: hidden; 
             user-select: none; 
@@ -28,17 +27,17 @@
             -webkit-tap-highlight-color: transparent;
         }
         
-        .glass { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(255,255,255,0.05); }
+        /* Glassmorphism & UI */
+        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(16px); border-bottom: 1px solid rgba(255,255,255,0.05); }
         .glass-card { background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%); border: 1px solid rgba(255,255,255,0.05); }
         .custom-scrollbar::-webkit-scrollbar { width: 0px; }
         
         /* Animaciones */
         @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        .anim-entry { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-        @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-        .anim-pulse { animation: pulse-soft 2s infinite; }
-
-        /* Pantalla Roja de Error (Fallback) */
+        .anim-entry { animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 5px rgba(168, 85, 247, 0.2); } 50% { box-shadow: 0 0 20px rgba(168, 85, 247, 0.5); } }
+        
+        /* Pantalla de Error */
         #fatal-error { display: none; position: fixed; inset: 0; background: #000; z-index: 9999; flex-direction: column; align-items: center; justify-content: center; padding: 20px; text-align: center; }
     </style>
 </head>
@@ -46,241 +45,226 @@
     <div id="root"></div>
     
     <div id="fatal-error">
-        <h2 class="text-red-500 font-bold mb-2 text-xl">⚠️ Error del Sistema</h2>
-        <p id="error-msg" class="text-gray-400 font-mono text-xs mb-4"></p>
-        <button onclick="window.location.reload()" class="bg-white text-black px-6 py-2 rounded-full font-bold">Reiniciar App</button>
+        <h2 class="text-red-500 font-bold mb-2">Error de Conexión</h2>
+        <p id="error-msg" class="text-gray-500 text-xs font-mono"></p>
+        <button onclick="window.location.reload()" class="mt-4 bg-white text-black px-4 py-2 rounded-full font-bold text-xs">Reintentar</button>
     </div>
 
-    <script>
-        window.onerror = function(msg, source, lineno) {
-            const errDiv = document.getElementById('fatal-error');
-            const errMsg = document.getElementById('error-msg');
-            // Ignorar errores menores de red o resize
-            if (errDiv && errMsg && !msg.includes("ResizeObserver") && !msg.includes("Script error")) {
-                errDiv.style.display = 'flex';
-                errMsg.innerText = msg;
-            }
-        };
-    </script>
-
     <script type="text/babel" data-type="module" data-presets="react">
-        // --- 1. IMPORTACIONES FIREBASE ---
+        // --- 1. IMPORTACIONES FIREBASE (Versión Modular) ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-analytics.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, updateDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getFirestore, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        // IMPORTANTE: Importamos Functions para hablar con el Backend
+        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js";
 
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect } = React;
 
-        // --- 2. CONFIGURACIÓN (Extraída de tu archivo claves) ---
+        // --- 2. CONFIGURACIÓN (Tus Credenciales) ---
         const firebaseConfig = {
             apiKey: "AIzaSyCzMHYbC7Q4HSV0Wnou56vnKL2-Py_RYtI",
             authDomain: "anime-quiz-twa.firebaseapp.com",
             projectId: "anime-quiz-twa",
-            storageBucket: "anime-quiz-twa.firebasestorage.app", // Actualizado según tu archivo
+            storageBucket: "anime-quiz-twa.firebasestorage.app",
             messagingSenderId: "303007999686",
             appId: "1:303007999686:web:03c140e818c2785d0f99c7",
-            measurementId: "G-X9EZ6S1TV9" // ✅ ID Correcto
+            measurementId: "G-X9EZ6S1TV9"
         };
 
-        // --- 3. INICIALIZACIÓN ROBUSTA ---
-        let app, auth, db, analytics;
+        // --- 3. INICIALIZACIÓN ---
+        let app, auth, db, functions, analytics;
         
         try {
             app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
+            functions = getFunctions(app); // Inicializamos Cloud Functions
             
-            // Analytics protegido contra AdBlockers
+            // Analytics en modo seguro
             try {
                 analytics = getAnalytics(app);
-                console.log("📊 Analytics iniciado correctamente");
-            } catch (err) {
-                console.warn("⚠️ Analytics bloqueado por el cliente (No crítico).");
+            } catch (e) {
+                console.warn("Analytics bloqueado por cliente.");
             }
         } catch (e) {
-            console.error("🔥 Error Crítico Firebase:", e);
             document.getElementById('fatal-error').style.display = 'flex';
-            document.getElementById('error-msg').innerText = "Fallo de conexión: " + e.message;
+            document.getElementById('error-msg').innerText = e.message;
         }
 
-        // --- 4. COMPONENTES UI ---
+        // --- 4. UI COMPONENTS ---
         const Icon = ({ name, size = 20, className = "" }) => {
             if (!window.lucide) return null;
-            const IconComp = window.lucide.icons[name];
-            return IconComp ? <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} dangerouslySetInnerHTML={{ __html: IconComp.toSvg().match(/>(.*)<\/svg>/)[1] }} /> : null;
+            const I = window.lucide.icons[name];
+            return I ? <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} dangerouslySetInnerHTML={{ __html: I.toSvg().match(/>(.*)<\/svg>/)[1] }} /> : null;
         };
 
-        // --- 5. LOGICA DE NEGOCIO (Engine) ---
+        // --- 5. GAME ENGINE (Conectado al Backend) ---
         const useGameEngine = (user, profile) => {
             const [timeNextLife, setTimeNextLife] = useState(null);
+            const [isClaiming, setIsClaiming] = useState(false);
 
-            useEffect(() => {
-                if (!profile || !user) return;
+            // Función para pedir vida al servidor
+            const claimLife = async () => {
+                if (isClaiming || !user) return;
+                setIsClaiming(true);
                 
-                const MAX_LIVES = 5;
-                const REGEN_MS = 30 * 60 * 1000; // 30 minutos
+                try {
+                    // Llamamos a la Cloud Function 'claimLife'
+                    const claimFn = httpsCallable(functions, 'claimLife');
+                    const result = await claimFn();
+                    
+                    if (!result.data.success) {
+                        // Feedback suave (vibración si es móvil)
+                        if(window.navigator.vibrate) window.navigator.vibrate(200);
+                        console.log("Servidor dice:", result.data.message);
+                    } else {
+                        // Éxito
+                        if(window.navigator.vibrate) window.navigator.vibrate(50);
+                    }
+                } catch (e) {
+                    console.error("Error conectando con servidor:", e);
+                } finally {
+                    setIsClaiming(false);
+                }
+            };
 
-                const checkLives = () => {
-                    // Si ya tiene 5 vidas, no hacemos nada
-                    if (profile.lives >= MAX_LIVES) {
+            // Temporizador VISUAL (La seguridad está en el server)
+            useEffect(() => {
+                if (!profile) return;
+                
+                const checkTimer = () => {
+                    if (profile.lives >= 5) {
                         setTimeNextLife(null);
                         return;
                     }
-
-                    // Si falta el campo de fecha, lo reparamos
-                    if (!profile.lastLifeRegen) {
-                        updateDoc(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), {
-                            lastLifeRegen: new Date().toISOString()
-                        });
-                        return;
-                    }
-
-                    const lastRegen = new Date(profile.lastLifeRegen).getTime();
+                    
+                    // Convertir Timestamp de Firestore a JS Date
+                    const lastRegen = profile.lastLifeRegen?.toDate 
+                        ? profile.lastLifeRegen.toDate().getTime() 
+                        : new Date(profile.lastLifeRegen).getTime();
+                        
                     const now = Date.now();
                     const diff = now - lastRegen;
+                    const REGEN_MS = 30 * 60 * 1000; // 30 mins
 
                     if (diff >= REGEN_MS) {
-                        // Lógica de regeneración
-                        const livesToAdd = Math.floor(diff / REGEN_MS);
-                        const newLives = Math.min(MAX_LIVES, profile.lives + livesToAdd);
-                        
-                        if (newLives > profile.lives) {
-                            // Calcular nueva base de tiempo para no perder minutos acumulados
-                            const newLastRegen = new Date(lastRegen + (livesToAdd * REGEN_MS)).toISOString();
-                            
-                            updateDoc(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), {
-                                lives: newLives,
-                                lastLifeRegen: newLastRegen
-                            });
-                        }
+                        setTimeNextLife(0); // Listo para reclamar
+                        // Opcional: Intentar reclamar automáticamente si la app está abierta
+                        // claimLife(); 
                     } else {
-                        // Actualizar reloj visual
                         setTimeNextLife(REGEN_MS - diff);
                     }
                 };
 
-                const timer = setInterval(checkLives, 1000);
-                checkLives(); // Ejecutar al montar
-                return () => clearInterval(timer);
-            }, [profile, user]);
+                const t = setInterval(checkTimer, 1000);
+                checkTimer(); // Ejecutar ya
+                return () => clearInterval(t);
+            }, [profile]);
 
-            return { timeNextLife };
+            return { timeNextLife, claimLife, isClaiming };
         };
 
-        // --- 6. VISTAS (SCREENS) ---
+        // --- 6. PANTALLAS ---
 
-        // PANTALLA DE BIENVENIDA (Login + Sanitización)
-        const LoginScreen = ({ onRegister }) => {
+        const LoginScreen = ({ onRegister, loading }) => {
             const [nick, setNick] = useState("");
-            const [loading, setLoading] = useState(false);
-
-            const handleSubmit = () => {
-                // ✅ SANITIZACIÓN: Eliminar caracteres peligrosos
-                const cleanNick = nick.trim().replace(/[<>]/g, "").slice(0, 12);
-                
-                if (cleanNick.length < 3) return;
-                setLoading(true);
-                onRegister(cleanNick);
-            };
-
+            
             return (
-                <div className="h-full flex flex-col items-center justify-center p-8 anim-entry relative bg-black">
-                     {/* Fondo animado */}
-                    <div className="absolute inset-0 bg-purple-900/20 blur-[80px] animate-pulse pointer-events-none"></div>
+                <div className="h-full flex flex-col items-center justify-center p-8 anim-entry relative bg-[#020617]">
+                    <div className="absolute inset-0 bg-purple-600/10 blur-[90px] pointer-events-none"></div>
                     
-                    <div className="text-center mb-12 relative z-10">
-                        <div className="w-24 h-24 bg-gradient-to-tr from-purple-600 to-indigo-600 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-xl shadow-purple-500/20 rotate-3 border border-white/10">
-                            <Icon name="Sword" size={48} className="text-white" />
+                    <div className="text-center mb-10 relative z-10">
+                        <div className="w-20 h-20 bg-gradient-to-tr from-purple-500 to-indigo-600 rounded-2xl mx-auto mb-6 flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.4)]">
+                            <Icon name="Sword" size={40} className="text-white" />
                         </div>
-                        <h1 className="text-4xl font-black italic tracking-tighter mb-2 text-white">ANIME<br/><span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">QUIZ PRO</span></h1>
-                        <p className="text-slate-400 text-sm font-medium">Demuestra tu nivel de poder</p>
+                        <h1 className="text-4xl font-black italic tracking-tighter mb-2 text-white">ANIME<br/>QUIZ PRO</h1>
                     </div>
 
-                    <div className="w-full max-w-xs glass p-1 rounded-3xl">
-                        <div className="bg-slate-900/80 p-6 rounded-[20px] backdrop-blur-xl">
-                            <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest ml-1 mb-2 block">Nombre de Guerrero</label>
-                            <input 
-                                type="text" 
-                                value={nick}
-                                onChange={(e) => setNick(e.target.value)}
-                                placeholder="Ej: Goku99"
-                                maxLength={12}
-                                className="w-full bg-slate-800 text-white p-4 rounded-xl border border-slate-700 focus:border-purple-500 focus:bg-slate-800 outline-none transition-all font-bold text-center text-lg placeholder:text-slate-600 mb-4"
-                            />
-                            <button 
-                                onClick={handleSubmit}
-                                disabled={nick.trim().length < 3 || loading}
-                                className="w-full bg-white hover:bg-purple-50 text-black font-black py-4 rounded-xl uppercase tracking-widest text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
-                            >
-                                {loading ? <Icon name="Loader2" className="animate-spin" /> : "Comenzar Aventura"}
-                            </button>
-                        </div>
+                    <div className="w-full glass p-6 rounded-3xl border border-white/10 relative z-10">
+                        <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest ml-1 mb-2 block">Identidad</label>
+                        <input 
+                            type="text" 
+                            value={nick}
+                            onChange={(e) => setNick(e.target.value)}
+                            placeholder="Tu Nickname"
+                            maxLength={12}
+                            className="w-full bg-slate-900/50 text-white p-4 rounded-xl border border-white/10 focus:border-purple-500 outline-none transition-all font-bold text-center text-lg mb-4"
+                            disabled={loading}
+                        />
+                        <button 
+                            onClick={() => onRegister(nick)}
+                            disabled={nick.trim().length < 3 || loading}
+                            className="w-full bg-white text-black font-black py-4 rounded-xl uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex justify-center items-center gap-2"
+                        >
+                            {loading ? <Icon name="Loader2" className="animate-spin" /> : "COMENZAR"}
+                        </button>
                     </div>
-                    <p className="mt-8 text-[10px] text-slate-600 font-mono">v2.1 • Seguro & Optimizado</p>
                 </div>
             );
         };
 
-        // PANTALLA PRINCIPAL (Dashboard)
         const Dashboard = ({ user, profile }) => {
+            const { timeNextLife, claimLife, isClaiming } = useGameEngine(user, profile);
             const [tab, setTab] = useState('arena');
-            const { timeNextLife } = useGameEngine(user, profile);
 
             const formatTime = (ms) => {
-                if (!ms) return "";
-                const totalSec = Math.floor(ms / 1000);
-                const m = Math.floor(totalSec / 60);
-                const s = totalSec % 60;
+                if (ms === 0) return "LISTO";
+                const m = Math.floor(ms / 60000);
+                const s = Math.floor((ms % 60000) / 1000);
                 return `${m}:${s < 10 ? '0' : ''}${s}`;
             };
 
             return (
                 <div className="h-full flex flex-col relative bg-[#020617]">
-                    {/* ZONA A: HUD (Header) */}
-                    <header className="h-24 px-6 pt-2 pb-2 glass flex flex-col justify-center shrink-0 z-20">
-                        <div className="flex items-center justify-between mb-3">
-                            {/* Vidas */}
-                            <div className="flex items-center gap-3">
+                    {/* HEADER */}
+                    <header className="h-24 px-6 pt-4 pb-2 glass flex flex-col justify-center shrink-0 z-20">
+                        <div className="flex items-center justify-between mb-2">
+                            {/* VIDAS (Interactivo) */}
+                            <div 
+                                className={`flex items-center gap-3 transition-all ${timeNextLife===0 ? 'cursor-pointer hover:scale-105' : ''}`}
+                                onClick={() => timeNextLife === 0 && claimLife()}
+                            >
                                 <div className="relative">
-                                    <Icon name="Heart" className="text-red-500 fill-red-500 drop-shadow-lg" size={28} />
-                                    <div className="absolute -top-1 -right-1 bg-white text-red-600 text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-slate-900 shadow-sm">
+                                    <Icon name="Heart" className={`fill-red-500 ${timeNextLife===0 ? 'text-red-400 animate-pulse' : 'text-red-500'}`} size={28} />
+                                    <div className="absolute -top-1 -right-1 bg-white text-red-600 text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-slate-900">
                                         {profile.lives}
                                     </div>
                                 </div>
-                                {timeNextLife && profile.lives < 5 && (
+                                {timeNextLife !== null && profile.lives < 5 && (
                                     <div className="flex flex-col">
                                         <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wide">Recarga</span>
-                                        <span className="text-xs font-mono font-bold text-white">{formatTime(timeNextLife)}</span>
+                                        <span className={`text-xs font-mono font-bold ${timeNextLife===0 ? 'text-green-400' : 'text-white'}`}>
+                                            {isClaiming ? '...' : formatTime(timeNextLife)}
+                                        </span>
                                     </div>
                                 )}
                             </div>
 
-                            {/* Monedas */}
+                            {/* MONEDAS */}
                             <div className="flex items-center gap-2 bg-slate-900/60 px-4 py-2 rounded-full border border-yellow-500/20 backdrop-blur-md">
-                                <span className="text-lg animate-pulse">🪙</span>
+                                <span className="text-lg">🪙</span>
                                 <span className="text-sm font-black text-yellow-100">{profile.coins}</span>
                             </div>
                         </div>
 
-                        {/* Barra de XP */}
+                        {/* XP BAR */}
                         <div className="w-full">
                             <div className="flex justify-between text-[9px] font-black uppercase text-slate-500 mb-1 tracking-widest">
                                 <span>Rango {Math.floor(profile.xp / 1000) + 1}</span>
                                 <span>{profile.xp} XP</span>
                             </div>
                             <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-full bg-gradient-to-r from-purple-500 to-indigo-500 shadow-[0_0_10px_rgba(168,85,247,0.4)]" style={{width: `${(profile.xp % 1000) / 10}%`}}></div>
+                                <div className="h-full bg-gradient-to-r from-purple-500 to-indigo-500" style={{width: `${(profile.xp % 1000) / 10}%`}}></div>
                             </div>
                         </div>
                     </header>
 
-                    {/* ZONA B: STAGE (Contenido) */}
+                    {/* MAIN CONTENT */}
                     <main className="flex-1 overflow-y-auto custom-scrollbar p-6 pb-32">
                         {tab === 'arena' && (
                             <div className="space-y-6 anim-entry">
-                                {/* Evento Bloqueado */}
-                                <div className="glass-card p-0.5 rounded-[24px] opacity-70">
+                                <div className="glass-card p-1 rounded-[24px] opacity-70">
                                     <div className="bg-gradient-to-br from-slate-900 to-slate-950 p-6 rounded-[22px] border border-white/5 flex items-center justify-between">
                                         <div>
                                             <h3 className="font-black text-lg italic uppercase text-slate-300">Evento Especial</h3>
@@ -292,12 +276,11 @@
                                     </div>
                                 </div>
 
-                                {/* Grid de Animes */}
                                 <div className="grid grid-cols-2 gap-4">
-                                    {['Dragon Ball', 'One Piece', 'Naruto', 'Kimetsu'].map((anime, i) => (
+                                    {['Dragon Ball', 'One Piece', 'Naruto', 'Kimetsu'].map(anime => (
                                         <button key={anime} className="glass-card p-4 rounded-3xl h-36 flex flex-col items-center justify-center gap-3 hover:bg-white/5 transition-all active:scale-95 group relative overflow-hidden">
                                             <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                                            <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center text-2xl group-hover:-translate-y-1 transition-transform border border-white/5 shadow-lg">
+                                            <div className="w-12 h-12 rounded-2xl bg-slate-800 flex items-center justify-center text-2xl border border-white/5 shadow-lg group-hover:-translate-y-1 transition-transform">
                                                 ⚔️
                                             </div>
                                             <span className="font-black text-[10px] uppercase text-center tracking-widest text-slate-300 group-hover:text-white transition-colors">{anime}</span>
@@ -328,22 +311,11 @@
                                         <p className="text-[10px] text-slate-400 font-mono">ID: {user.uid.substring(0,6).toUpperCase()}</p>
                                     </div>
                                 </div>
-
-                                <button className="w-full glass p-5 rounded-3xl flex items-center justify-between active:bg-slate-800 transition-all border border-white/5">
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-3 bg-purple-500/20 text-purple-400 rounded-2xl"><Icon name="BookOpen" size={20} /></div>
-                                        <div className="text-left">
-                                            <p className="font-bold text-sm text-white">Reglas del Dojo</p>
-                                            <p className="text-[10px] text-slate-500">Aprende lo básico</p>
-                                        </div>
-                                    </div>
-                                    <Icon name="ChevronRight" size={18} className="text-slate-600" />
-                                </button>
                             </div>
                         )}
                     </main>
 
-                    {/* ZONA C: DOCK (Navegación) */}
+                    {/* DOCK */}
                     <nav className="h-24 glass absolute bottom-0 w-full flex justify-around items-center px-6 pb-6 z-30 backdrop-blur-xl">
                         {[
                             { id: 'arena', icon: 'Sword', label: 'Arena' },
@@ -369,96 +341,76 @@
             );
         };
 
-        // --- 7. APP ROOT (Lógica Principal) ---
-        function App() {
+        // --- 7. APP ROOT ---
+        const App = () => {
             const [user, setUser] = useState(null);
             const [profile, setProfile] = useState(null);
             const [loading, setLoading] = useState(true);
+            const [regLoading, setRegLoading] = useState(false);
 
             useEffect(() => {
-                // Configuración Telegram
                 if (window.Telegram?.WebApp) {
                     window.Telegram.WebApp.ready();
                     window.Telegram.WebApp.expand();
                     window.Telegram.WebApp.setHeaderColor('#020617');
                 }
 
-                // Autenticación
-                const unsubscribe = onAuthStateChanged(auth, (u) => {
+                const unsubAuth = onAuthStateChanged(auth, (u) => {
                     setUser(u);
                     if (u) {
-                        console.log("✅ Conectado como:", u.uid);
+                        // Escuchar perfil en tiempo real
+                        const unsubProfile = onSnapshot(doc(db, 'users', u.uid, 'profile', 'main'), 
+                            (snap) => {
+                                setProfile(snap.exists() ? snap.data() : null);
+                                setLoading(false);
+                            },
+                            (err) => {
+                                // Si da error de permiso, es porque no hay perfil y la regla de lectura falla
+                                // Eso significa que es un usuario nuevo
+                                console.log("Estado de perfil:", err.message);
+                                setLoading(false);
+                            }
+                        );
+                        return () => unsubProfile();
                     } else {
-                        signInAnonymously(auth).catch(e => console.error("Error Auth:", e));
+                        // Si no hay user, entramos anónimo
+                        signInAnonymously(auth).catch(console.error);
                     }
-                    if(!u) setLoading(false); 
                 });
-
-                return () => unsubscribe();
+                return () => unsubAuth();
             }, []);
 
-            // Sincronización de Perfil
-            useEffect(() => {
-                if (!user) return;
-                
-                // Escuchar cambios en el documento del usuario
-                const unsub = onSnapshot(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), 
-                    (snap) => {
-                        if (snap.exists()) {
-                            setProfile(snap.data());
-                        } else {
-                            setProfile(null); // No existe -> Login
-                        }
-                        setLoading(false);
-                    },
-                    (error) => {
-                        console.error("❌ Error DB:", error);
-                        setLoading(false); 
-                    }
-                );
-                return () => unsub();
-            }, [user]);
-
-            // Registro (Starter Pack Seguro)
-            const registerUser = async (nickname) => {
-                if (!user) return;
-                
-                const starterPack = {
-                    nickname,
-                    coins: 100, // Inicial fijo
-                    lives: 5,   // Inicial fijo
-                    xp: 0,
-                    inventory: { fifty: 1, time: 1, skip: 1 },
-                    lastLifeRegen: new Date().toISOString(),
-                    createdAt: serverTimestamp()
-                };
-
+            // REGISTRO USANDO CLOUD FUNCTIONS (Seguro)
+            const handleRegister = async (nickname) => {
+                setRegLoading(true);
                 try {
-                    await setDoc(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), starterPack);
-                    if (analytics) logEvent(analytics, 'sign_up', { method: 'anonymous' });
+                    const createUserFn = httpsCallable(functions, 'createUserProfile');
+                    const response = await createUserFn({ nickname });
+                    
+                    if (!response.data.success) {
+                        alert("Error: " + response.data.error);
+                    }
+                    // Si éxito, el onSnapshot detectará el perfil automáticamente
                 } catch (e) {
-                    console.error("❌ Error Registro:", e);
-                    alert("No se pudo crear el perfil. Revisa tu conexión.");
+                    console.error(e);
+                    alert("Error al conectar con el servidor.");
+                } finally {
+                    setRegLoading(false);
                 }
             };
 
-            if (loading) return (
+            if (loading && !user) return (
                 <div className="h-screen flex items-center justify-center bg-[#020617]">
-                    <div className="relative">
-                        <div className="w-16 h-16 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin"></div>
-                        <div className="absolute inset-0 flex items-center justify-center text-purple-500">
-                            <Icon name="Sword" size={20} />
-                        </div>
-                    </div>
+                    <div className="w-16 h-16 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin"></div>
                 </div>
             );
 
-            if (user && !profile) return <LoginScreen onRegister={registerUser} />;
+            if (user && !profile && !loading) return <LoginScreen onRegister={handleRegister} loading={regLoading} />;
             
             if (user && profile) return <Dashboard user={user} profile={profile} />;
 
             return <div className="h-screen bg-[#020617]"></div>;
-        }
+        };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
