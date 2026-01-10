@@ -37,10 +37,34 @@
         .anim-entry { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
         @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
         .anim-float { animation: float 3s ease-in-out infinite; }
+
+        /* Pantalla de Error Fatal (Fallback) */
+        #fatal-error { display: none; position: fixed; inset: 0; background: #000; z-index: 9999; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; }
     </style>
 </head>
 <body>
     <div id="root"></div>
+    
+    <div id="fatal-error">
+        <h2 class="text-red-500 font-bold mb-2">Error de Inicialización</h2>
+        <p id="error-msg" class="text-xs text-gray-500 font-mono"></p>
+        <button onclick="window.location.reload()" class="mt-4 bg-white text-black px-4 py-2 rounded">Reintentar</button>
+    </div>
+
+    <script>
+        // Captura de errores globales antes de que React cargue
+        window.onerror = function(msg, source, lineno) {
+            const errDiv = document.getElementById('fatal-error');
+            const errMsg = document.getElementById('error-msg');
+            if (errDiv && errMsg) {
+                // No mostrar error si es solo un warning de red (común en Telegram)
+                if(!msg.includes("ResizeObserver")) {
+                    errDiv.style.display = 'flex';
+                    errMsg.innerText = msg + " (Línea: " + lineno + ")";
+                }
+            }
+        };
+    </script>
 
     <script type="text/babel" data-type="module" data-presets="react">
         // --- 1. MÓDULOS FIREBASE ---
@@ -51,35 +75,42 @@
 
         const { useState, useEffect, useRef } = React;
 
-        // --- 2. CONFIGURACIÓN SEGURA ---
-        // NOTA: Estas claves son públicas por naturaleza en apps web.
-        // La seguridad real depende de las "Firestore Rules" que ya configuramos.
+        // --- 2. CONFIGURACIÓN SEGURA (CREDENTIALS INYECTADAS) ---
+        // Extraído de tu archivo 'claves telegram y firebase quiz anime.txt'
         const firebaseConfig = {
-            apiKey: "AIzaSyCzMHYbC7Q4HSV0Wnou56vnKL2-Py_RYtI", 
+            apiKey: "AIzaSyCzMHYbC7Q4HSV0Wnou56vnKL2-Py_RYtI",
             authDomain: "anime-quiz-twa.firebaseapp.com",
             projectId: "anime-quiz-twa",
-            storageBucket: "anime-quiz-twa.appspot.com",
+            storageBucket: "anime-quiz-twa.firebasestorage.app", // Corregido según tu archivo txt
             messagingSenderId: "303007999686",
             appId: "1:303007999686:web:03c140e818c2785d0f99c7",
-            measurementId: "G-X9EZ6S1TV9" // <--- PEGA AQUÍ TU ID REAL DE ANALYTICS
+            measurementId: "G-X9EZ6S1TV9" // ID REAL INYECTADO
         };
 
-        // Inicialización Robusta
+        // --- 3. INICIALIZACIÓN ROBUSTA (TRY-CATCH) ---
         let app, auth, db, analytics;
+        
         try {
+            console.log("🚀 Iniciando Firebase...");
             app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
-            // Analytics opcional: no rompe la app si falla
-            if (firebaseConfig.measurementId !== "G-X9EZ6S1TV9") {
+            
+            // Analytics en un bloque separado por si hay AdBlockers
+            try {
                 analytics = getAnalytics(app);
-                console.log("📊 Analytics Activo");
+                console.log("📊 Analytics Activo: G-X9EZ6S1TV9");
+            } catch (analyticsErr) {
+                console.warn("⚠️ Analytics no pudo cargar (posible AdBlock), la app continuará:", analyticsErr);
             }
+            
         } catch (e) {
-            console.error("Error crítico iniciando Firebase:", e);
+            console.error("🔥 ERROR CRÍTICO FIREBASE:", e);
+            document.getElementById('fatal-error').style.display = 'flex';
+            document.getElementById('error-msg').innerText = "Fallo conexión: " + e.message;
         }
 
-        // --- 3. COMPONENTES VISUALES (UI) ---
+        // --- 4. COMPONENTES UI (Interfaz Visual) ---
 
         const Icon = ({ name, size = 20, className = "" }) => {
             if (!window.lucide) return null;
@@ -87,21 +118,28 @@
             return IconComp ? <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} dangerouslySetInnerHTML={{ __html: IconComp.toSvg().match(/>(.*)<\/svg>/)[1] }} /> : null;
         };
 
-        // --- 4. GESTOR DE ECONOMÍA Y VIDAS (Engine) ---
+        // --- 5. GESTOR DE ECONOMÍA Y VIDAS (Engine) ---
         const useGameEngine = (user, profile) => {
             const [timeNextLife, setTimeNextLife] = useState(null);
 
-            // Calculadora de Vidas
             useEffect(() => {
                 if (!profile || !user) return;
                 
-                // Configuración: 5 Vidas máx, 30 min recarga
                 const MAX_LIVES = 5;
-                const REGEN_MS = 30 * 60 * 1000; 
+                const REGEN_MS = 30 * 60 * 1000; // 30 Minutos
 
                 const checkLives = () => {
+                    // Si tiene vidas al máximo, no hay temporizador
                     if (profile.lives >= MAX_LIVES) {
                         setTimeNextLife(null);
+                        return;
+                    }
+
+                    // Protección contra fechas inválidas
+                    if (!profile.lastLifeRegen) {
+                        updateDoc(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), {
+                            lastLifeRegen: new Date().toISOString()
+                        });
                         return;
                     }
 
@@ -110,41 +148,46 @@
                     const diff = now - lastRegen;
 
                     if (diff >= REGEN_MS) {
-                        // Ha pasado el tiempo: Recargar vida
-                        // Calculamos cuántas vidas se han generado en este tiempo (por si estuvo offline horas)
+                        // Ha pasado el tiempo: Recargar
                         const livesToAdd = Math.floor(diff / REGEN_MS);
                         const newLives = Math.min(MAX_LIVES, profile.lives + livesToAdd);
                         
-                        // Si hemos ganado vidas, actualizamos DB y reseteamos el reloj
                         if (newLives > profile.lives) {
-                            // La nueva fecha de regeneración es: última + (vidasGanadas * 30min)
-                            // Esto evita perder los minutos "sobrantes"
+                            // Calcular nueva fecha base para no perder minutos extra
                             const newLastRegen = new Date(lastRegen + (livesToAdd * REGEN_MS)).toISOString();
                             
                             updateDoc(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), {
                                 lives: newLives,
-                                lastLifeRegen: newLastRegen // Reseteamos el contador base
+                                lastLifeRegen: newLastRegen
                             });
                         }
                     } else {
-                        // Aún no ha pasado el tiempo: Actualizar contador visual
+                        // Actualizar contador visual
                         setTimeNextLife(REGEN_MS - diff);
                     }
                 };
 
-                const timer = setInterval(checkLives, 1000); // Revisar cada segundo
+                const timer = setInterval(checkLives, 1000);
+                checkLives(); // Ejecutar inmediatamente al cargar
                 return () => clearInterval(timer);
             }, [profile, user]);
 
             return { timeNextLife };
         };
 
-        // --- 5. VISTAS ---
+        // --- 6. VISTAS ---
 
         // VISTA: ONBOARDING (Login)
         const LoginScreen = ({ onRegister }) => {
             const [nick, setNick] = useState("");
+            const [isRegistering, setIsRegistering] = useState(false);
             
+            const handleRegister = () => {
+                if(nick.trim().length < 3) return;
+                setIsRegistering(true);
+                onRegister(nick);
+            };
+
             return (
                 <div className="h-full flex flex-col items-center justify-center p-8 anim-entry relative">
                     <div className="absolute inset-0 bg-purple-600/10 blur-[100px] pointer-events-none"></div>
@@ -165,13 +208,14 @@
                             onChange={(e) => setNick(e.target.value.slice(0, 12))}
                             placeholder="Ej: Goku99"
                             className="w-full bg-slate-900/50 text-white p-4 rounded-xl border border-white/5 focus:border-purple-500 outline-none transition-all font-bold text-center text-lg placeholder:text-slate-700"
+                            disabled={isRegistering}
                         />
                         <button 
-                            onClick={() => onRegister(nick)}
-                            disabled={nick.length < 3}
-                            className="w-full mt-4 bg-white text-black font-black py-4 rounded-xl uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:scale-100"
+                            onClick={handleRegister}
+                            disabled={nick.length < 3 || isRegistering}
+                            className="w-full mt-4 bg-white text-black font-black py-4 rounded-xl uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 flex justify-center items-center gap-2"
                         >
-                            Comenzar Aventura
+                            {isRegistering ? <Icon name="Loader2" className="animate-spin" /> : "Comenzar Aventura"}
                         </button>
                     </div>
                 </div>
@@ -183,7 +227,6 @@
             const [tab, setTab] = useState('arena');
             const { timeNextLife } = useGameEngine(user, profile);
 
-            // Formatear milisegundos a MM:SS
             const formatTime = (ms) => {
                 if (!ms) return "";
                 const totalSec = Math.floor(ms / 1000);
@@ -205,7 +248,7 @@
                                         {profile.lives}
                                     </div>
                                 </div>
-                                {timeNextLife && (
+                                {timeNextLife && profile.lives < 5 && (
                                     <div className="flex flex-col">
                                         <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Recarga</span>
                                         <span className="text-xs font-mono font-bold text-white">{formatTime(timeNextLife)}</span>
@@ -320,52 +363,83 @@
             );
         };
 
-        // --- 6. ROOT APP ---
+        // --- 7. ROOT APP ---
         function App() {
             const [user, setUser] = useState(null);
             const [profile, setProfile] = useState(null);
             const [loading, setLoading] = useState(true);
 
             useEffect(() => {
+                // Notificar a Telegram que estamos listos
                 if (window.Telegram?.WebApp) {
                     window.Telegram.WebApp.ready();
                     window.Telegram.WebApp.expand();
                     window.Telegram.WebApp.setHeaderColor('#020617');
                 }
 
-                // Auth Anónimo
-                signInAnonymously(auth).catch(console.error);
-
-                return onAuthStateChanged(auth, (u) => {
+                // Iniciar Auth
+                const unsubscribe = onAuthStateChanged(auth, (u) => {
                     setUser(u);
-                    if (!u) setLoading(false);
+                    if (u) {
+                        console.log("✅ Usuario autenticado:", u.uid);
+                    } else {
+                        console.log("⚪ Iniciando sesión anónima...");
+                        signInAnonymously(auth).catch(e => console.error("Error Auth:", e));
+                    }
+                    // Si no hay usuario, seguimos cargando hasta que el signInAnonymously termine
+                    if(!u) setLoading(false); 
                 });
+
+                return () => unsubscribe();
             }, []);
 
-            // Escuchar Perfil
+            // Escuchar Perfil en tiempo real
             useEffect(() => {
                 if (!user) return;
-                const unsub = onSnapshot(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), (snap) => {
-                    setProfile(snap.exists() ? snap.data() : null);
-                    setLoading(false);
-                });
+                
+                const profilePath = 'artifacts/anime-quiz-pro-prod/users/' + user.uid + '/profile/main';
+                console.log("🔗 Conectando a perfil:", profilePath);
+
+                const unsub = onSnapshot(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), 
+                    (snap) => {
+                        if (snap.exists()) {
+                            setProfile(snap.data());
+                        } else {
+                            setProfile(null); // Gatilla la pantalla de Login
+                        }
+                        setLoading(false);
+                    },
+                    (error) => {
+                        console.error("❌ Error leyendo perfil:", error);
+                        // Si falla por permisos, asumimos que no hay perfil o configuración de reglas
+                        setLoading(false); 
+                    }
+                );
                 return () => unsub();
             }, [user]);
 
-            // Registro Inicial (Starter Pack)
+            // Crear Perfil Nuevo (Starter Pack)
             const registerUser = async (nickname) => {
                 if (!user) return;
+                
                 const starterPack = {
                     nickname,
-                    coins: 100,      // 🪙 100 Monedas Gratis
-                    lives: 5,        // ❤️ 5 Vidas
-                    xp: 0,           // 🎖️ Nivel 0
-                    inventory: { fifty: 1, time: 1, skip: 1 }, // ⚡ 3 Powerups
+                    coins: 100,
+                    lives: 5,
+                    xp: 0,
+                    inventory: { fifty: 1, time: 1, skip: 1 },
                     lastLifeRegen: new Date().toISOString(),
                     createdAt: serverTimestamp()
                 };
-                await setDoc(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), starterPack);
-                if (analytics) logEvent(analytics, 'sign_up', { method: 'anonymous' });
+
+                try {
+                    console.log("💾 Guardando perfil nuevo...");
+                    await setDoc(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), starterPack);
+                    if (analytics) logEvent(analytics, 'sign_up', { method: 'anonymous' });
+                } catch (e) {
+                    console.error("❌ Error guardando perfil:", e);
+                    alert("Error al crear el perfil. Verifica tu conexión.");
+                }
             };
 
             if (loading) return <div className="h-screen flex items-center justify-center text-purple-500"><Icon name="Loader2" className="animate-spin" size={40} /></div>;
@@ -374,7 +448,8 @@
             
             if (user && profile) return <Dashboard user={user} profile={profile} />;
 
-            return null;
+            // Estado fallback (no debería ocurrir con auth anónima)
+            return <div className="h-screen flex items-center justify-center text-slate-500">Iniciando sesión...</div>;
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
