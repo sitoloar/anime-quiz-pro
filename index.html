@@ -6,7 +6,6 @@
     <title>Anime Quiz Pro</title>
     
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -25,21 +24,22 @@
             height: 100vh;
         }
         
-        /* Glassmorphism Pro */
         .glass { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
         .glass-card { background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%); border: 1px solid rgba(255,255,255,0.05); }
         
         .custom-scrollbar::-webkit-scrollbar { width: 0px; }
         .tap-transparent { -webkit-tap-highlight-color: transparent; }
         
-        /* Animaciones */
         @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         .anim-entry { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
         @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
         .anim-float { animation: float 3s ease-in-out infinite; }
 
-        /* Pantalla de Error Fatal (Fallback) */
         #fatal-error { display: none; position: fixed; inset: 0; background: #000; z-index: 9999; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+        
+        .toast { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(12px); padding: 16px 24px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); z-index: 9999; animation: slideUp 0.3s ease-out; }
+        .toast.error { border-color: rgba(239, 68, 68, 0.5); }
+        .toast.success { border-color: rgba(34, 197, 94, 0.5); }
     </style>
 </head>
 <body>
@@ -52,65 +52,105 @@
     </div>
 
     <script>
-        // Captura de errores globales antes de que React cargue
         window.onerror = function(msg, source, lineno) {
             const errDiv = document.getElementById('fatal-error');
             const errMsg = document.getElementById('error-msg');
-            if (errDiv && errMsg) {
-                // No mostrar error si es solo un warning de red (común en Telegram)
-                if(!msg.includes("ResizeObserver")) {
-                    errDiv.style.display = 'flex';
-                    errMsg.innerText = msg + " (Línea: " + lineno + ")";
-                }
+            if (errDiv && errMsg && !msg.includes("ResizeObserver")) {
+                errDiv.style.display = 'flex';
+                errMsg.innerText = msg + " (Línea: " + lineno + ")";
             }
         };
     </script>
 
     <script type="text/babel" data-type="module" data-presets="react">
-        // --- 1. MÓDULOS FIREBASE ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-analytics.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, updateDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, serverTimestamp, collection, query, where, getDocs, limit, orderBy } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js";
 
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect, useRef, useCallback } = React;
 
-        // --- 2. CONFIGURACIÓN SEGURA (CREDENTIALS INYECTADAS) ---
-        // Extraído de tu archivo 'claves telegram y firebase quiz anime.txt'
+        // ============================================
+        // CONFIGURACIÓN FIREBASE
+        // ============================================
         const firebaseConfig = {
             apiKey: "AIzaSyCzMHYbC7Q4HSV0Wnou56vnKL2-Py_RYtI",
             authDomain: "anime-quiz-twa.firebaseapp.com",
             projectId: "anime-quiz-twa",
-            storageBucket: "anime-quiz-twa.firebasestorage.app", // Corregido según tu archivo txt
+            storageBucket: "anime-quiz-twa.firebasestorage.app",
             messagingSenderId: "303007999686",
             appId: "1:303007999686:web:03c140e818c2785d0f99c7",
-            measurementId: "G-X9EZ6S1TV9" // ID REAL INYECTADO
+            measurementId: "G-X9EZ6S1TV9"
         };
 
-        // --- 3. INICIALIZACIÓN ROBUSTA (TRY-CATCH) ---
-        let app, auth, db, analytics;
+        let app, auth, db, analytics, functions;
         
         try {
             console.log("🚀 Iniciando Firebase...");
             app = initializeApp(firebaseConfig);
             auth = getAuth(app);
             db = getFirestore(app);
+            functions = getFunctions(app);
             
-            // Analytics en un bloque separado por si hay AdBlockers
             try {
                 analytics = getAnalytics(app);
-                console.log("📊 Analytics Activo: G-X9EZ6S1TV9");
+                console.log("📊 Analytics Activo");
             } catch (analyticsErr) {
-                console.warn("⚠️ Analytics no pudo cargar (posible AdBlock), la app continuará:", analyticsErr);
+                console.warn("⚠️ Analytics bloqueado:", analyticsErr);
             }
-            
         } catch (e) {
             console.error("🔥 ERROR CRÍTICO FIREBASE:", e);
             document.getElementById('fatal-error').style.display = 'flex';
             document.getElementById('error-msg').innerText = "Fallo conexión: " + e.message;
         }
 
-        // --- 4. COMPONENTES UI (Interfaz Visual) ---
+        // ============================================
+        // UTILIDADES GLOBALES
+        // ============================================
+        
+        const showToast = (message, type = 'info') => {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `<p class="text-sm font-bold text-white">${message}</p>`;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        };
+
+        const sanitizeNickname = (nick) => {
+            return nick
+                .trim()
+                .replace(/[<>'"\/\\]/g, '') // Eliminar caracteres peligrosos
+                .replace(/\s+/g, ' ') // Normalizar espacios
+                .slice(0, 12);
+        };
+
+        const validateNickname = (nick) => {
+            const clean = sanitizeNickname(nick);
+            if (clean.length < 3) return { valid: false, error: 'Mínimo 3 caracteres' };
+            if (clean.length > 12) return { valid: false, error: 'Máximo 12 caracteres' };
+            if (!/^[a-zA-Z0-9áéíóúñÑ ]+$/.test(clean)) return { valid: false, error: 'Solo letras y números' };
+            return { valid: true, value: clean };
+        };
+
+        // Detección de manipulación temporal
+        let lastTimestamp = Date.now();
+        const detectTimeManipulation = () => {
+            const now = Date.now();
+            const diff = Math.abs(now - lastTimestamp - 1000);
+            
+            if (diff > 5000) { // Salto de más de 5 segundos
+                console.warn('⚠️ Posible manipulación temporal detectada');
+                if (analytics) logEvent(analytics, 'security_anomaly', { type: 'time_jump' });
+            }
+            
+            lastTimestamp = now;
+        };
+        setInterval(detectTimeManipulation, 1000);
+
+        // ============================================
+        // COMPONENTES UI
+        // ============================================
 
         const Icon = ({ name, size = 20, className = "" }) => {
             if (!window.lucide) return null;
@@ -118,74 +158,111 @@
             return IconComp ? <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} dangerouslySetInnerHTML={{ __html: IconComp.toSvg().match(/>(.*)<\/svg>/)[1] }} /> : null;
         };
 
-        // --- 5. GESTOR DE ECONOMÍA Y VIDAS (Engine) ---
+        // ============================================
+        // HOOKS PERSONALIZADOS
+        // ============================================
+
         const useGameEngine = (user, profile) => {
             const [timeNextLife, setTimeNextLife] = useState(null);
+            const [canClaim, setCanClaim] = useState(false);
 
             useEffect(() => {
-                if (!profile || !user) return;
+                if (!profile) return;
                 
                 const MAX_LIVES = 5;
-                const REGEN_MS = 30 * 60 * 1000; // 30 Minutos
+                const REGEN_MS = 30 * 60 * 1000; // 30 minutos
 
-                const checkLives = () => {
-                    // Si tiene vidas al máximo, no hay temporizador
+                const checkTimer = () => {
                     if (profile.lives >= MAX_LIVES) {
                         setTimeNextLife(null);
+                        setCanClaim(false);
                         return;
                     }
 
-                    // Protección contra fechas inválidas
-                    if (!profile.lastLifeRegen) {
-                        updateDoc(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), {
-                            lastLifeRegen: new Date().toISOString()
-                        });
-                        return;
-                    }
+                    if (!profile.lastLifeRegen) return;
 
                     const lastRegen = new Date(profile.lastLifeRegen).getTime();
                     const now = Date.now();
                     const diff = now - lastRegen;
 
                     if (diff >= REGEN_MS) {
-                        // Ha pasado el tiempo: Recargar
-                        const livesToAdd = Math.floor(diff / REGEN_MS);
-                        const newLives = Math.min(MAX_LIVES, profile.lives + livesToAdd);
-                        
-                        if (newLives > profile.lives) {
-                            // Calcular nueva fecha base para no perder minutos extra
-                            const newLastRegen = new Date(lastRegen + (livesToAdd * REGEN_MS)).toISOString();
-                            
-                            updateDoc(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), {
-                                lives: newLives,
-                                lastLifeRegen: newLastRegen
-                            });
-                        }
+                        setTimeNextLife(0);
+                        setCanClaim(true);
                     } else {
-                        // Actualizar contador visual
                         setTimeNextLife(REGEN_MS - diff);
+                        setCanClaim(false);
                     }
                 };
 
-                const timer = setInterval(checkLives, 1000);
-                checkLives(); // Ejecutar inmediatamente al cargar
+                const timer = setInterval(checkTimer, 1000);
+                checkTimer();
                 return () => clearInterval(timer);
-            }, [profile, user]);
+            }, [profile]);
 
-            return { timeNextLife };
+            const claimLife = useCallback(async () => {
+                if (!canClaim || !user) return;
+
+                try {
+                    const claimLifeFn = httpsCallable(functions, 'claimLife');
+                    const result = await claimLifeFn();
+                    
+                    if (result.data.success) {
+                        showToast(`¡Vida recuperada! Ahora tienes ${result.data.newLives} vidas`, 'success');
+                        if (analytics) logEvent(analytics, 'life_claimed');
+                    } else {
+                        showToast(result.data.message || 'No puedes reclamar aún', 'error');
+                    }
+                } catch (error) {
+                    console.error('Error reclamando vida:', error);
+                    showToast('Error al reclamar vida. Intenta de nuevo.', 'error');
+                }
+            }, [canClaim, user]);
+
+            return { timeNextLife, canClaim, claimLife };
         };
 
-        // --- 6. VISTAS ---
+        const useTelegramAuth = () => {
+            const [tgUser, setTgUser] = useState(null);
 
-        // VISTA: ONBOARDING (Login)
-        const LoginScreen = ({ onRegister }) => {
-            const [nick, setNick] = useState("");
+            useEffect(() => {
+                if (window.Telegram?.WebApp) {
+                    const user = window.Telegram.WebApp.initDataUnsafe?.user;
+                    if (user) {
+                        setTgUser(user);
+                        console.log('📱 Usuario Telegram:', user.id, user.first_name);
+                    }
+                }
+            }, []);
+
+            return tgUser;
+        };
+
+        // ============================================
+        // VISTAS
+        // ============================================
+
+        const LoginScreen = ({ onRegister, tgUser }) => {
+            const [nick, setNick] = useState(tgUser?.first_name || "");
             const [isRegistering, setIsRegistering] = useState(false);
+            const [error, setError] = useState("");
             
-            const handleRegister = () => {
-                if(nick.trim().length < 3) return;
+            const handleRegister = async () => {
+                const validation = validateNickname(nick);
+                
+                if (!validation.valid) {
+                    setError(validation.error);
+                    return;
+                }
+                
+                setError("");
                 setIsRegistering(true);
-                onRegister(nick);
+                
+                try {
+                    await onRegister(validation.value, tgUser?.id);
+                } catch (e) {
+                    setError("Error al crear perfil. Intenta de nuevo.");
+                    setIsRegistering(false);
+                }
             };
 
             return (
@@ -205,27 +282,39 @@
                         <input 
                             type="text" 
                             value={nick}
-                            onChange={(e) => setNick(e.target.value.slice(0, 12))}
+                            onChange={(e) => {
+                                setNick(e.target.value);
+                                setError("");
+                            }}
                             placeholder="Ej: Goku99"
+                            maxLength={12}
                             className="w-full bg-slate-900/50 text-white p-4 rounded-xl border border-white/5 focus:border-purple-500 outline-none transition-all font-bold text-center text-lg placeholder:text-slate-700"
                             disabled={isRegistering}
                         />
+                        {error && (
+                            <p className="text-red-400 text-xs mt-2 text-center">{error}</p>
+                        )}
                         <button 
                             onClick={handleRegister}
-                            disabled={nick.length < 3 || isRegistering}
+                            disabled={nick.trim().length < 3 || isRegistering}
                             className="w-full mt-4 bg-white text-black font-black py-4 rounded-xl uppercase tracking-widest text-xs hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 flex justify-center items-center gap-2"
                         >
                             {isRegistering ? <Icon name="Loader2" className="animate-spin" /> : "Comenzar Aventura"}
                         </button>
+                        
+                        {tgUser && (
+                            <p className="text-xs text-slate-500 text-center mt-4">
+                                Conectado como {tgUser.first_name}
+                            </p>
+                        )}
                     </div>
                 </div>
             );
         };
 
-        // VISTA: DASHBOARD (Principal)
         const Dashboard = ({ user, profile }) => {
             const [tab, setTab] = useState('arena');
-            const { timeNextLife } = useGameEngine(user, profile);
+            const { timeNextLife, canClaim, claimLife } = useGameEngine(user, profile);
 
             const formatTime = (ms) => {
                 if (!ms) return "";
@@ -237,7 +326,7 @@
 
             return (
                 <div className="h-full flex flex-col relative">
-                    {/* ZONA A: HUD */}
+                    {/* HUD */}
                     <header className="h-24 px-6 pt-4 pb-2 glass flex flex-col justify-center shrink-0 z-20">
                         <div className="flex items-center justify-between mb-2">
                             {/* Vidas */}
@@ -248,10 +337,21 @@
                                         {profile.lives}
                                     </div>
                                 </div>
-                                {timeNextLife && profile.lives < 5 && (
+                                {profile.lives < 5 && (
                                     <div className="flex flex-col">
-                                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">Recarga</span>
-                                        <span className="text-xs font-mono font-bold text-white">{formatTime(timeNextLife)}</span>
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">
+                                            {canClaim ? 'Disponible' : 'Recarga'}
+                                        </span>
+                                        {canClaim ? (
+                                            <button 
+                                                onClick={claimLife}
+                                                className="text-xs font-bold text-green-400 hover:text-green-300 active:scale-95 transition-all"
+                                            >
+                                                ¡Reclamar!
+                                            </button>
+                                        ) : (
+                                            <span className="text-xs font-mono font-bold text-white">{formatTime(timeNextLife)}</span>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -263,7 +363,7 @@
                             </div>
                         </div>
 
-                        {/* Barra de XP */}
+                        {/* Barra XP */}
                         <div className="w-full">
                             <div className="flex justify-between text-[9px] font-black uppercase text-slate-500 mb-1 tracking-widest">
                                 <span>Rango {Math.floor(profile.xp / 1000) + 1}</span>
@@ -275,11 +375,11 @@
                         </div>
                     </header>
 
-                    {/* ZONA B: STAGE */}
+                    {/* STAGE */}
                     <main className="flex-1 overflow-y-auto custom-scrollbar p-6 pb-28">
                         {tab === 'arena' && (
                             <div className="space-y-6 anim-entry">
-                                {/* Evento Especial (Próximamente) */}
+                                {/* Evento Especial */}
                                 <div className="glass-card p-1 rounded-[24px] opacity-60">
                                     <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-6 rounded-[20px] border border-white/5 flex items-center justify-between grayscale">
                                         <div>
@@ -293,7 +393,11 @@
                                 {/* Categorías */}
                                 <div className="grid grid-cols-2 gap-4">
                                     {['Dragon Ball', 'One Piece', 'Naruto', 'Kimetsu'].map(anime => (
-                                        <button key={anime} className="glass-card p-6 rounded-3xl h-40 flex flex-col items-center justify-center gap-4 hover:border-purple-500/50 transition-all active:scale-95 group">
+                                        <button 
+                                            key={anime} 
+                                            onClick={() => showToast('Categoría próximamente disponible', 'info')}
+                                            className="glass-card p-6 rounded-3xl h-40 flex flex-col items-center justify-center gap-4 hover:border-purple-500/50 transition-all active:scale-95 group"
+                                        >
                                             <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
                                                 ⚔️
                                             </div>
@@ -320,24 +424,45 @@
                                         🦸
                                     </div>
                                     <h2 className="text-2xl font-black text-white italic">{profile.nickname}</h2>
-                                    <p className="text-[10px] text-slate-500 font-mono mt-2 bg-slate-900/50 inline-block px-3 py-1 rounded-full">ID: {user.uid.substring(0,6)}</p>
+                                    <p className="text-[10px] text-slate-500 font-mono mt-2 bg-slate-900/50 inline-block px-3 py-1 rounded-full">
+                                        ID: {user.uid.substring(0,6)}
+                                    </p>
                                 </div>
 
-                                <button className="w-full glass p-4 rounded-2xl flex items-center justify-between group active:bg-slate-800 transition-colors">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-slate-800 rounded-lg"><Icon name="BookOpen" size={18} /></div>
-                                        <div className="text-left">
-                                            <p className="font-bold text-sm">Reglas del Dojo</p>
-                                            <p className="text-[10px] text-slate-500">Aprende a jugar</p>
+                                <div className="space-y-3">
+                                    <button 
+                                        onClick={() => showToast('Reglas: Responde correctamente para ganar XP y monedas. Pierdes 1 vida por respuesta incorrecta.', 'info')}
+                                        className="w-full glass p-4 rounded-2xl flex items-center justify-between group active:bg-slate-800 transition-colors"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-slate-800 rounded-lg"><Icon name="BookOpen" size={18} /></div>
+                                            <div className="text-left">
+                                                <p className="font-bold text-sm">Reglas del Dojo</p>
+                                                <p className="text-[10px] text-slate-500">Aprende a jugar</p>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <Icon name="ChevronRight" size={16} className="text-slate-600" />
-                                </button>
+                                        <Icon name="ChevronRight" size={16} className="text-slate-600" />
+                                    </button>
+
+                                    <button 
+                                        onClick={() => showToast('Versión 1.0.0 - Segura', 'info')}
+                                        className="w-full glass p-4 rounded-2xl flex items-center justify-between group active:bg-slate-800 transition-colors"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 bg-slate-800 rounded-lg"><Icon name="Shield" size={18} /></div>
+                                            <div className="text-left">
+                                                <p className="font-bold text-sm">Versión de la App</p>
+                                                <p className="text-[10px] text-slate-500">Protegida y auditada</p>
+                                            </div>
+                                        </div>
+                                        <Icon name="ChevronRight" size={16} className="text-slate-600" />
+                                    </button>
+                                </div>
                             </div>
                         )}
                     </main>
 
-                    {/* ZONA C: DOCK */}
+                    {/* DOCK */}
                     <nav className="h-24 glass absolute bottom-0 w-full flex justify-around items-center px-6 pb-4 z-30">
                         {[
                             { id: 'arena', icon: 'Sword', label: 'Arena' },
@@ -363,97 +488,106 @@
             );
         };
 
-        // --- 7. ROOT APP ---
+        // ============================================
+        // APP PRINCIPAL
+        // ============================================
+
         function App() {
             const [user, setUser] = useState(null);
             const [profile, setProfile] = useState(null);
             const [loading, setLoading] = useState(true);
+            const tgUser = useTelegramAuth();
 
             useEffect(() => {
-                // Notificar a Telegram que estamos listos
                 if (window.Telegram?.WebApp) {
                     window.Telegram.WebApp.ready();
                     window.Telegram.WebApp.expand();
                     window.Telegram.WebApp.setHeaderColor('#020617');
                 }
 
-                // Iniciar Auth
-                const unsubscribe = onAuthStateChanged(auth, (u) => {
-                    setUser(u);
+                const unsubscribe = onAuthStateChanged(auth, async (u) => {
                     if (u) {
                         console.log("✅ Usuario autenticado:", u.uid);
+                        setUser(u);
                     } else {
-                        console.log("⚪ Iniciando sesión anónima...");
-                        signInAnonymously(auth).catch(e => console.error("Error Auth:", e));
+                        console.log("⚪ Iniciando sesión...");
+                        
+                        // Intentar autenticación con Telegram primero
+                        if (tgUser?.id) {
+                            try {
+                                const createTokenFn = httpsCallable(functions, 'createTelegramToken');
+                                const result = await createTokenFn({ telegramId: tgUser.id });
+                                
+                                if (result.data.token) {
+                                    await signInWithCustomToken(auth, result.data.token);
+                                    console.log("✅ Autenticado con Telegram");
+                                    return;
+                                }
+                            } catch (error) {
+                                console.warn("⚠️ Telegram auth falló, usando anónima:", error);
+                            }
+                        }
+                        
+                        // Fallback a autenticación anónima
+                        signInAnonymously(auth).catch(e => {
+                            console.error("Error Auth:", e);
+                            showToast('Error de autenticación. Recarga la app.', 'error');
+                        });
                     }
-                    // Si no hay usuario, seguimos cargando hasta que el signInAnonymously termine
-                    if(!u) setLoading(false); 
                 });
 
                 return () => unsubscribe();
-            }, []);
+            }, [tgUser]);
 
-            // Escuchar Perfil en tiempo real
             useEffect(() => {
                 if (!user) return;
                 
-                const profilePath = 'artifacts/anime-quiz-pro-prod/users/' + user.uid + '/profile/main';
-                console.log("🔗 Conectando a perfil:", profilePath);
-
-                const unsub = onSnapshot(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), 
+                const unsub = onSnapshot(
+                    doc(db, 'users', user.uid, 'profile', 'main'), 
                     (snap) => {
                         if (snap.exists()) {
                             setProfile(snap.data());
                         } else {
-                            setProfile(null); // Gatilla la pantalla de Login
+                            setProfile(null);
                         }
                         setLoading(false);
                     },
                     (error) => {
                         console.error("❌ Error leyendo perfil:", error);
-                        // Si falla por permisos, asumimos que no hay perfil o configuración de reglas
-                        setLoading(false); 
+                        setLoading(false);
                     }
                 );
+                
                 return () => unsub();
             }, [user]);
 
-            // Crear Perfil Nuevo (Starter Pack)
-            const registerUser = async (nickname) => {
+            const registerUser = async (nickname, telegramId = null) => {
                 if (!user) return;
                 
-                const starterPack = {
-                    nickname,
-                    coins: 100,
-                    lives: 5,
-                    xp: 0,
-                    inventory: { fifty: 1, time: 1, skip: 1 },
-                    lastLifeRegen: new Date().toISOString(),
-                    createdAt: serverTimestamp()
-                };
-
                 try {
-                    console.log("💾 Guardando perfil nuevo...");
-                    await setDoc(doc(db, 'artifacts', 'anime-quiz-pro-prod', 'users', user.uid, 'profile', 'main'), starterPack);
-                    if (analytics) logEvent(analytics, 'sign_up', { method: 'anonymous' });
+                    const createProfileFn = httpsCallable(functions, 'createUserProfile');
+                    const result = await createProfileFn({ 
+                        nickname,
+                        telegramId 
+                    });
+                    
+                    if (result.data.success) {
+                        console.log("✅ Perfil creado");
+                        if (analytics) logEvent(analytics, 'sign_up', { method: telegramId ? 'telegram' : 'anonymous' });
+                        showToast('¡Bienvenido a Anime Quiz Pro!', 'success');
+                    } else {
+                        throw new Error(result.data.error || 'Error desconocido');
+                    }
                 } catch (e) {
-                    console.error("❌ Error guardando perfil:", e);
-                    alert("Error al crear el perfil. Verifica tu conexión.");
+                    console.error("❌ Error creando perfil:", e);
+                    throw e;
                 }
             };
 
-            if (loading) return <div className="h-screen flex items-center justify-center text-purple-500"><Icon name="Loader2" className="animate-spin" size={40} /></div>;
-
-            if (user && !profile) return <LoginScreen onRegister={registerUser} />;
-            
-            if (user && profile) return <Dashboard user={user} profile={profile} />;
-
-            // Estado fallback (no debería ocurrir con auth anónima)
-            return <div className="h-screen flex items-center justify-center text-slate-500">Iniciando sesión...</div>;
-        }
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+            if (loading) {
+                return (
+                    <div className="h-screen flex items-center justify-center text-purple-500">
+                        <Icon name="Loader2" className="animate-spin" size={40} />
+                    </div>
+                );
+            }
